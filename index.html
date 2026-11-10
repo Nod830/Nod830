@@ -13,6 +13,7 @@
 :root{
   --paper:#eef1f7; --card:#ffffff; --ink:#14213d; --muted:#5d6a85; --line:#c5cee0;
   --stamp:#d7263d; --sky:#2a62d9; --go:#0e9a61; --on-accent:#ffffff;
+  --u1:#e4572e; --u2:#1f8f82; --u3:#3f6fe0; --u4:#8a4fd8; --u5:#a8770a; --u-ink:#ffffff;
   --display:"Black Han Sans","IBM Plex Sans KR",system-ui,sans-serif;
   --body:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
@@ -153,7 +154,7 @@ app.addEventListener("click", function(e){
   var b = e.target.closest("[data-act]");
   if (b && !b.disabled && acts[b.dataset.act]) acts[b.dataset.act](b);
 });
-function show(html){ clearTimers(); app.innerHTML = html; app.scrollTop = 0; }
+function show(html){ clearTimers(); tdStop(); app.innerHTML = html; app.scrollTop = 0; }
 function topbar(label){
   return '<div class="top"><span class="mono">'+label+'</span><button class="btn ghost small" data-act="home">그만하기</button></div>';
 }
@@ -721,9 +722,20 @@ function onAct(a){
   }
   if (a.t === "leave"){
     if (a.id === S.host) return;
+    if (g && g.k === "td" && g.phase === "play") tdOut(g, a.id, 0);
     S.players = P.filter(function(p){ return p.id !== a.id; }); return commit();
   }
   if (!inG) return;
+  if (g.k === "td" && g.phase === "play"){
+    if (a.t === "st" && !g.st[a.id].out){ g.st[a.id].life = a.life | 0; return commit(); }
+    if (a.t === "atk" && !g.st[a.id].out){
+      var al = g.ids.filter(function(x){ return x !== a.id && !g.st[x].out; });
+      if (!al.length) return;
+      var tg = pick(al); g.inc[tg].n++; g.inc[tg].hp = Math.max(1, a.hp | 0); return commit();
+    }
+    if (a.t === "out"){ tdOut(g, a.id, a.time); return commit(); }
+    return;
+  }
   if (a.t === "vote" && (g.k === "liar" || g.k === "point") && g.phase === "vote" && a.to !== a.id && g.ids.indexOf(a.to) >= 0){
     g.votes[a.id] = a.to;
     if (Object.keys(g.votes).length >= g.ids.length) return tally();
@@ -780,7 +792,8 @@ var OG = [
   {k:"liar", t:"라이어 게임", d:"제시어를 보고 토론한 뒤 폰으로 투표", min:3},
   {k:"math", t:"암산 레이스", d:"같은 문제를 먼저 맞히면 1점. 5점 선승", min:2},
   {k:"nunchi", t:"눈치 게임", d:"한 명씩 번호 외치기. 겹치거나 꼴찌면 벌점", min:3},
-  {k:"point", t:"지목 투표", d:"질문에 맞는 사람에게 몰래 투표", min:3}
+  {k:"point", t:"지목 투표", d:"질문에 맞는 사람에게 몰래 투표", min:3},
+  {k:"td", t:"머지 디펜스 배틀", d:"유닛을 합쳐 막고, 잡은 만큼 상대에게 보내기", min:2}
 ];
 acts.ostart = function(b){
   if (!O.isHost) return;
@@ -791,6 +804,10 @@ acts.ostart = function(b){
     S.g = {k:k, ids:ids, cat:cat, word:pick(WORDS[cat]), liar:pick(ids), first:pick(ids), phase:"talk", votes:{}};
   } else if (k === "point") S.g = {k:k, ids:ids, q:pick(POINTQ), phase:"vote", votes:{}};
   else if (k === "math"){ S.g = {k:k, ids:ids, score:{}, qn:0, target:5, locked:{}, phase:"gap", last:null}; return mathNext(); }
+  else if (k === "td"){
+    S.g = {k:k, ids:ids, gid:Date.now(), phase:"play", st:{}, inc:{}, outN:0, losers:[], winner:null};
+    ids.forEach(function(id){ S.g.st[id] = {life:3, out:0}; S.g.inc[id] = {n:0, hp:0}; });
+  }
   else if (k === "nunchi"){
     S.g = {k:k, ids:ids, phase:"ready", calls:[], lastT:0, losers:[], why:""};
     O.ht = setTimeout(function(){ if (O.S && O.S.g && O.S.g.k === "nunchi" && O.S.g.phase === "ready"){ O.S.g.phase = "go"; commit(); } }, 3000);
@@ -835,7 +852,19 @@ function orender(force){
       '<p class="mono">'+Object.keys(g.votes).length+'/'+g.ids.length+'명 투표</p></div>'+
       (H ? '<button class="btn ghost" data-act="otally">지금 결과 보기</button>' : '');
   }
-  if (!g){
+  if (g && g.k === "td"){
+    var lifeChips = g.ids.map(function(id){ return '<span class="chip" style="padding:4px 10px;font-size:.8rem">'+esc(oname(id))+' '+(g.st[id].out ? '탈락' : '♥'+g.st[id].life)+'</span>'; }).join("");
+    if (g.phase === "play" && inG && !g.st[me].out){
+      if (!TD || TD.gid !== g.gid) tdStart({gid:g.gid, btn:(H ? '<button class="btn ghost small" data-act="olobby">끝내기</button>' : '<span></span>'),
+        onKill:function(hp){ sendAct({t:"atk", hp:hp}); }, onLife:function(l){ sendAct({t:"st", life:l}); }, onDead:function(t){ sendAct({t:"out", time:t}); }});
+      if (TD){ TD.info(lifeChips); while (TD.got < g.inc[me].n){ TD.got++; TD.add(g.inc[me].hp); } }
+      return;
+    }
+    if (g.phase === "play") body = '<div class="center"><h2>'+(inG ? '탈락!' : '이번 판은 관전 중')+'</h2><p class="muted">남은 사람들이 버티는 중입니다.</p><div class="chips">'+lifeChips+'</div></div>'+
+      (H ? '<button class="btn ghost" data-act="olobby">그만하고 대기실로</button>' : '');
+    else body = '<div class="center"><p class="muted">마지막 생존자</p><div class="big">'+esc(oname(g.winner))+'</div>'+
+      '<p class="muted">제일 먼저 무너진 사람</p><div class="big liar" style="font-size:2.2rem">'+names(g.losers)+'</div><p class="muted">도장 하나 추가</p></div>'+hostFoot;
+  } else if (!g){
     body = '<div class="center" style="flex:0 0 auto"><p class="muted">친구들에게 이 방 번호를 알려주세요</p><div class="roomcode">'+O.room+'</div></div>'+
       '<div class="pass"><section><span class="mono">들어온 사람 '+S.players.length+'명</span><div class="rows">'+S.players.map(function(p,i){
         return '<div class="row"><span class="seat">'+seat(i)+'</span><span class="name">'+esc(p.name)+(p.id===me?' (나)':'')+(p.id===S.host?' · 방장':'')+'</span>'+
@@ -885,6 +914,167 @@ function orender(force){
     hd.addEventListener("contextmenu", function(e){ e.preventDefault(); });
   }
 }
+
+/* ───── 머지 디펜스: 벨트 위 수하물을 유닛으로 막는다. 같은 유닛 둘을 합치면 한 단계 위 랜덤 유닛 ───── */
+var TD = null;
+function tdStop(){ if (TD){ cancelAnimationFrame(TD.raf); window.removeEventListener("resize", TD.fit); TD = null; } }
+function tdOut(g, id, time){
+  var st = g.st[id]; if (!st || st.out) return;
+  g.outN++; st.out = g.outN; st.life = 0; st.time = time || 0;
+  var alive = g.ids.filter(function(x){ return !g.st[x].out; });
+  if (alive.length <= 1){
+    g.winner = alive[0] || id;
+    g.losers = g.ids.filter(function(x){ return g.st[x].out === 1 && x !== g.winner; });
+    g.phase = "result"; addPts(g.losers);
+  }
+}
+var UT = [["속","--u1"],["포","--u2"],["빙","--u3"],["저","--u4"],["연","--u5"]];
+var TPATH = [[0,40],[330,40],[330,100],[30,100],[30,160],[360,160]], TLEN = 1080;
+function tpos(d){
+  for (var i=0;i<5;i++){
+    var a = TPATH[i], b = TPATH[i+1], l = Math.abs(b[0]-a[0]) + Math.abs(b[1]-a[1]);
+    if (d <= l) return [a[0]+(b[0]-a[0])*d/l, a[1]+(b[1]-a[1])*d/l];
+    d -= l;
+  }
+  return TPATH[5];
+}
+function cellXY(i){ return [52 + (i%5)*64, 235 + Math.floor(i/5)*70]; }
+function cellAt(x, y){ var c = Math.floor((x-20)/64), r = Math.floor((y-200)/70); return (c<0||c>4||r<0||r>2) ? -1 : r*5+c; }
+function tdHp(t){ return Math.round(30 + 4*t + 0.03*t*t); }
+function tdStart(o){
+  show('<div class="stage" style="gap:10px"><div class="top"><span class="mono" id="tdhud"></span>'+(o.btn || '<button class="btn ghost small" data-act="home">그만하기</button>')+'</div>'+
+    '<div class="chips" id="tdinfo" style="justify-content:flex-start;gap:6px"></div>'+
+    '<div id="tdwrap" style="flex:1;min-height:0;display:grid;place-items:center"><canvas id="tdc" style="touch-action:none;border-radius:14px"></canvas></div>'+
+    '<button class="btn" id="tdsum"></button>'+
+    '<p class="muted" style="font-size:.8rem;text-align:center">같은 글자·같은 숫자끼리 끌어다 합치면 한 단계 위 랜덤 유닛. 5마리 잡을 때마다 상대에게 하나 보냅니다.</p></div>');
+  var cv = document.getElementById("tdc"), ctx = cv.getContext("2d"), wrap = document.getElementById("tdwrap");
+  var hud = document.getElementById("tdhud"), sum = document.getElementById("tdsum"), info = document.getElementById("tdinfo");
+  var cs = getComputedStyle(document.documentElement), col = function(n){ return cs.getPropertyValue(n).trim(); };
+  var C = {card:col("--card"), ink:col("--ink"), line:col("--line"), muted:col("--muted"), stamp:col("--stamp"), sky:col("--sky"), paper:col("--paper"), uink:col("--u-ink")};
+  var UC = UT.map(function(u){ return col(u[1]); });
+  var s = {t:0, sp:100, cost:10, lives:3, kills:0, units:[], en:[], shots:[], spawn:1.5, extra:[], exCd:0, drag:-1, px:0, py:0, dead:false, last:performance.now(), k:1, hudKey:""};
+  for (var i=0;i<15;i++) s.units.push(null);
+  function fit(){
+    var k = Math.min(wrap.clientWidth/360, wrap.clientHeight/420); if (!(k > 0.2)) k = Math.max(0.5, wrap.clientWidth/360);
+    var dpr = window.devicePixelRatio || 1; s.k = k;
+    cv.style.width = Math.floor(360*k)+"px"; cv.style.height = Math.floor(420*k)+"px";
+    cv.width = Math.floor(360*k*dpr); cv.height = Math.floor(420*k*dpr);
+    ctx.setTransform(cv.width/360, 0, 0, cv.height/420, 0, 0);
+  }
+  TD = {raf:0, fit:fit, gid:o.gid, got:0, s:s, add:function(hp){ s.extra.push(hp); }, info:function(h){ if (info.innerHTML !== h) info.innerHTML = h; }};
+  window.addEventListener("resize", fit); fit();
+  function rr(x, y, w, h, r){ ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); }
+  function pt(e){ var b = cv.getBoundingClientRect(); s.px = (e.clientX-b.left)/s.k; s.py = (e.clientY-b.top)/s.k; }
+  cv.addEventListener("pointerdown", function(e){ e.preventDefault(); pt(e); var c = cellAt(s.px, s.py); if (c >= 0 && s.units[c]){ s.drag = c; try { cv.setPointerCapture(e.pointerId); } catch(x){} } });
+  cv.addEventListener("pointermove", function(e){ if (s.drag >= 0) pt(e); });
+  function drop(e){
+    if (s.drag < 0) return; pt(e);
+    var a = s.drag, b = cellAt(s.px, s.py), u = s.units[a], v = b >= 0 ? s.units[b] : null; s.drag = -1;
+    if (b < 0 || b === a || !u) return;
+    if (!v){ s.units[b] = u; s.units[a] = null; }
+    else if (v.type === u.type && v.lv === u.lv && u.lv < 6){ s.units[b] = {type:rnd(5), lv:u.lv+1, cd:0.2}; s.units[a] = null; buzz(20); }
+  }
+  cv.addEventListener("pointerup", drop); cv.addEventListener("pointercancel", function(){ s.drag = -1; });
+  cv.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+  sum.addEventListener("click", function(){
+    var free = []; s.units.forEach(function(u,i){ if (!u) free.push(i); });
+    if (s.dead || s.sp < s.cost || !free.length) return;
+    s.sp -= s.cost; s.cost += 10; s.units[pick(free)] = {type:rnd(5), lv:1, cd:0.2};
+  });
+  function hit(e, dmg){
+    if (e.gone) return; e.hp -= dmg;
+    if (e.hp <= 0){
+      e.gone = true; s.sp += 10 + Math.floor(s.t/20)*5; s.kills++;
+      if (s.kills % 5 === 0 && o.onKill) o.onKill(Math.round(tdHp(s.t)*1.3));
+    }
+  }
+  function update(dt){
+    var i, e, u;
+    s.t += dt; s.spawn -= dt; s.exCd -= dt;
+    if (s.spawn <= 0){ s.spawn = Math.max(0.7, 1.3 - s.t/400); e = tdHp(s.t); s.en.push({d:0, hp:e, max:e, slow:0, x:0, y:40}); }
+    if (s.extra.length && s.exCd <= 0){ s.exCd = 0.35; e = s.extra.shift(); s.en.push({d:0, hp:e, max:e, slow:0, x:0, y:40, sent:true}); }
+    for (i=0;i<s.en.length;i++){
+      e = s.en[i]; e.d += 45 * (e.slow > s.t ? 0.55 : 1) * dt;
+      var p = tpos(e.d); e.x = p[0]; e.y = p[1];
+      if (e.d >= TLEN){ e.gone = true; s.lives--; buzz(120); if (o.onLife) o.onLife(Math.max(0, s.lives)); }
+    }
+    s.en = s.en.filter(function(e){ return !e.gone; });
+    if (s.lives <= 0){ s.dead = true; return o.onDead(Math.round(s.t)); }
+    s.en.sort(function(a,b){ return b.d - a.d; });
+    for (i=0;i<15;i++){
+      u = s.units[i]; if (!u || i === s.drag) continue;
+      u.cd -= dt; if (u.cd > 0) continue;
+      var live = s.en.filter(function(e){ return !e.gone; }); if (!live.length) continue;
+      var m = u.lv*(1+0.25*(u.lv-1)), sp = 1+0.1*(u.lv-1), xy = cellXY(i), tg = [live[0]], j;
+      if (u.type === 0){ hit(live[0], 7*m); u.cd = 0.3/sp; }
+      else if (u.type === 1){
+        for (j=0;j<live.length;j++) if (Math.abs(live[j].x-live[0].x)+Math.abs(live[j].y-live[0].y) < 50) hit(live[j], 16*m);
+        u.cd = 1.1/sp;
+      }
+      else if (u.type === 2){
+        var f = live[0]; for (j=0;j<live.length;j++) if (live[j].slow <= s.t){ f = live[j]; break; }
+        f.slow = s.t + 2.5; hit(f, 5*m); tg = [f]; u.cd = 0.7/sp;
+      }
+      else if (u.type === 3){
+        var big = live[0]; for (j=1;j<live.length;j++) if (live[j].hp > big.hp) big = live[j];
+        hit(big, 55*m); tg = [big]; u.cd = 1.6/sp;
+      }
+      else { tg = live.slice(0,3); tg.forEach(function(e){ hit(e, 10*m); }); u.cd = 0.8/sp; }
+      tg.forEach(function(e){ s.shots.push({x1:xy[0], y1:xy[1], x2:e.x, y2:e.y, ttl:0.09, c:UC[u.type]}); });
+    }
+    s.en = s.en.filter(function(e){ return !e.gone; });
+    s.shots.forEach(function(h){ h.ttl -= dt; }); s.shots = s.shots.filter(function(h){ return h.ttl > 0; });
+  }
+  function unit(u, x, y, a){
+    ctx.globalAlpha = a; ctx.fillStyle = UC[u.type]; ctx.beginPath(); ctx.arc(x, y, 25, 0, 6.3); ctx.fill();
+    ctx.fillStyle = C.uink; ctx.font = "700 20px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(UT[u.type][0], x, y-1);
+    ctx.fillStyle = C.card; ctx.beginPath(); ctx.arc(x+19, y+19, 10, 0, 6.3); ctx.fill();
+    ctx.fillStyle = C.ink; ctx.font = "700 12px monospace"; ctx.fillText(u.lv, x+19, y+20); ctx.globalAlpha = 1;
+  }
+  function draw(){
+    var i, e, xy;
+    ctx.fillStyle = C.card; ctx.fillRect(0, 0, 360, 420);
+    ctx.strokeStyle = C.line; ctx.lineWidth = 30; ctx.lineJoin = "round"; ctx.lineCap = "butt"; ctx.beginPath();
+    ctx.moveTo(TPATH[0][0], TPATH[0][1]); for (i=1;i<6;i++) ctx.lineTo(TPATH[i][0], TPATH[i][1]); ctx.stroke();
+    ctx.fillStyle = C.muted; ctx.font = "600 10px monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillText("IN ▶", 4, 16); ctx.textAlign = "right"; ctx.fillText("OUT ▶", 356, 184);
+    ctx.lineWidth = 1.5;
+    for (i=0;i<15;i++){ xy = cellXY(i); ctx.strokeStyle = C.line; rr(xy[0]-28, xy[1]-30, 56, 60, 10); ctx.stroke(); }
+    for (i=s.en.length-1;i>=0;i--){
+      e = s.en[i]; ctx.fillStyle = e.sent ? C.stamp : C.ink; rr(e.x-15, e.y-11, 30, 22, 5); ctx.fill();
+      if (e.slow > s.t){ ctx.strokeStyle = C.sky; ctx.lineWidth = 2.5; ctx.stroke(); }
+      ctx.fillStyle = C.paper; ctx.font = "700 10px monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(e.hp >= 1000 ? (e.hp/1000).toFixed(1)+"k" : Math.ceil(e.hp), e.x, e.y+1);
+    }
+    ctx.lineWidth = 2.5;
+    s.shots.forEach(function(h){ ctx.strokeStyle = h.c; ctx.beginPath(); ctx.moveTo(h.x1, h.y1); ctx.lineTo(h.x2, h.y2); ctx.stroke(); });
+    for (i=0;i<15;i++) if (s.units[i]){ xy = cellXY(i); unit(s.units[i], xy[0], xy[1], i === s.drag ? 0.25 : 1); }
+    if (s.drag >= 0 && s.units[s.drag]) unit(s.units[s.drag], s.px, s.py, 1);
+    var full = s.units.every(function(u){ return u; });
+    var key = s.lives+"|"+s.sp+"|"+Math.floor(s.t)+"|"+s.cost+"|"+full;
+    if (key !== s.hudKey){
+      s.hudKey = key; hud.textContent = "♥"+Math.max(0,s.lives)+" · SP "+s.sp+" · "+Math.floor(s.t)+"초";
+      sum.textContent = full ? "자리가 없어요. 합쳐서 비우기" : "유닛 소환 · SP "+s.cost; sum.disabled = full || s.sp < s.cost;
+    }
+  }
+  (function frame(now){
+    if (!TD || TD.s !== s) return;
+    var dt = Math.min(0.05, Math.max(0, ((now || performance.now()) - s.last)/1000)); s.last = now || performance.now();
+    if (!s.dead) update(dt);
+    if (!TD || TD.s !== s) return;
+    draw(); TD.raf = requestAnimationFrame(frame);
+  })(performance.now());
+}
+GAMES.push({id:"td", t:"머지 디펜스", d:"혼자 연습. 유닛을 합쳐 수하물 막기", min:1});
+acts.td = function(){
+  tdStart({onDead:function(t){
+    buzz(200);
+    show('<div class="stage">'+topbar("머지 디펜스")+'<div class="center"><p class="muted">버틴 시간</p><div class="big">'+t+'초</div></div>'+
+      '<div class="col"><button class="btn" data-act="td">다시 하기</button><button class="btn ghost" data-act="home">게임 고르기</button></div></div>');
+  }});
+};
+MG.push({id:"mtd", t:"머지 디펜스", d:"각자 버티고 버틴 시간 비교", min:2});
+acts.mtd = function(){ tdStart({onDead:function(t){ mresult(t+"초", "서로 시간을 불러보세요. 제일 빨리 무너진 사람이 벌칙.", "mtd"); }}); };
 
 home();
 })();
