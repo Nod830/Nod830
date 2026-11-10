@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head>
+<body style="margin:0">
+<title>탑승 전 한판</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<style>
+/* 레이아웃: 보딩패스 한 장. 위는 탑승객 명단, 절취선 아래는 게임 티켓. 벌점은 빨간 도장으로 찍힌다. */
+:root{
+  --paper:#eef1f7; --card:#ffffff; --ink:#14213d; --muted:#5d6a85; --line:#c5cee0;
+  --stamp:#d7263d; --sky:#2a62d9; --go:#0e9a61; --on-accent:#ffffff;
+  --display:"Black Han Sans","IBM Plex Sans KR",system-ui,sans-serif;
+  --body:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --paper:#0c1424; --card:#16213a; --ink:#e8edf7; --muted:#97a4c0; --line:#2e3d60;
+  --stamp:#ff5a6e; --sky:#7aa5ff; --go:#3ad694; --on-accent:#0c1424; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --paper:#0c1424; --card:#16213a; --ink:#e8edf7; --muted:#97a4c0; --line:#2e3d60;
+  --stamp:#ff5a6e; --sky:#7aa5ff; --go:#3ad694; --on-accent:#0c1424; color-scheme:dark }
+
+html,body{height:100%}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.5;
+  display:flex;flex-direction:column;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+*{box-sizing:border-box}
+#app{flex:1;min-height:0;width:100%;max-width:480px;margin:0 auto;display:flex;flex-direction:column;gap:16px;
+  padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));overflow-y:auto}
+h1,h2,p{margin:0}
+h1{font-family:var(--display);font-weight:400;font-size:2.4rem;line-height:1.1;text-wrap:balance}
+h2{font-family:var(--display);font-weight:400;font-size:1.6rem;line-height:1.15;text-wrap:balance}
+.mono{font-family:var(--mono);font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.muted{color:var(--muted)}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;touch-action:manipulation}
+button:focus-visible,input:focus-visible{outline:3px solid var(--sky);outline-offset:2px}
+
+.pass{background:var(--card);border-radius:18px;border:1px solid var(--line)}
+.pass > section{padding:16px;display:flex;flex-direction:column;gap:12px}
+.tear{position:relative;border-top:2px dashed var(--line);margin:0 14px}
+.tear::before,.tear::after{content:"";position:absolute;top:-11px;width:20px;height:20px;border-radius:50%;background:var(--paper);border:1px solid var(--line)}
+.tear::before{left:-25px;clip-path:inset(0 0 0 50%)} .tear::after{right:-25px;clip-path:inset(0 50% 0 0)}
+.route{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+
+.rows{display:flex;flex-direction:column}
+.row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);min-height:48px}
+.row .seat{font-family:var(--mono);font-size:.8rem;color:var(--muted);width:2.6em;flex:none}
+.row .name{flex:1;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.stamps{display:flex;gap:3px;flex-wrap:wrap;justify-content:flex-end;max-width:45%}
+.hanko{width:22px;height:22px;border-radius:50%;border:2px solid var(--stamp);color:var(--stamp);font-size:.65rem;font-weight:700;
+  display:grid;place-items:center;transform:rotate(-12deg);flex:none}
+.x{width:36px;height:36px;border-radius:50%;color:var(--muted);font-size:1.2rem;flex:none}
+.add{display:flex;gap:8px}
+.add input{flex:1;min-width:0;font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+
+.btn{background:var(--sky);color:var(--on-accent);font-weight:700;border-radius:12px;padding:14px 18px;min-height:50px;text-align:center}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.btn.red{background:var(--stamp)} .btn.small{padding:10px 14px;min-height:44px}
+.btn:disabled{opacity:.4;cursor:default}
+.col{display:flex;flex-direction:column;gap:12px}
+.link{color:var(--muted);text-decoration:underline;font-size:.85rem;padding:8px;align-self:center}
+
+.game{display:flex;align-items:center;gap:12px;text-align:left;padding:12px 0;border-bottom:1px solid var(--line);width:100%}
+.game:last-child,.row:last-child{border-bottom:0}
+.game .no{font-family:var(--mono);font-size:.8rem;color:var(--sky);flex:none;width:2.6em}
+.game b{display:block;font-size:1.05rem} .game span.d{font-size:.85rem;color:var(--muted)}
+.game .arr{margin-left:auto;color:var(--muted);flex:none}
+.game:disabled{opacity:.45}
+
+/* 게임 화면 */
+.stage{flex:1;display:flex;flex-direction:column;gap:16px;min-height:0}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.center{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:14px;text-align:center;min-height:0}
+.big{font-family:var(--display);font-size:3rem;line-height:1.1;overflow-wrap:anywhere;text-wrap:balance}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.chip{border:1.5px solid var(--line);border-radius:999px;padding:10px 16px;font-weight:600;background:var(--card)}
+.hold{width:100%;min-height:190px;border-radius:18px;border:2px dashed var(--line);background:var(--card);display:grid;place-items:center;padding:16px;
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none}
+.hold.on{border-style:solid;border-color:var(--sky)}
+.liar{color:var(--stamp)}
+.bomb{width:150px;height:150px;border-radius:50%;background:var(--ink);color:var(--paper);display:grid;place-items:center;font-family:var(--display);font-size:2.2rem}
+.bomb.tick{animation:tick .18s ease-out}
+@keyframes tick{from{transform:scale(1.12)}to{transform:scale(1)}}
+.boom{color:var(--stamp)}
+.sealbig{width:120px;height:120px;border-radius:50%;border:5px solid var(--stamp);color:var(--stamp);display:grid;place-items:center;
+  font-family:var(--display);font-size:2.4rem;transform:rotate(-12deg);animation:slam .35s cubic-bezier(.2,1.6,.4,1)}
+@keyframes slam{from{transform:rotate(-12deg) scale(2.4);opacity:0}to{transform:rotate(-12deg) scale(1);opacity:1}}
+.zones{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0;touch-action:none;user-select:none;-webkit-user-select:none}
+.zone{border-radius:16px;background:var(--card);border:2px solid var(--line);display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;
+  font-weight:700;font-size:1.1rem;padding:8px;text-align:center;overflow-wrap:anywhere;touch-action:none;-webkit-touch-callout:none}
+.zones.go .zone{background:var(--go);border-color:var(--go);color:var(--on-accent)}
+.zones .zone.done{background:var(--card);border-color:var(--go);color:var(--ink)}
+.zones .zone.out{background:var(--stamp);border-color:var(--stamp);color:var(--on-accent)}
+.zone small{font-family:var(--mono);font-weight:500;font-size:.8rem}
+@media (prefers-reduced-motion: reduce){ .bomb.tick,.sealbig{animation:none} }
+</style>
+
+<div id="app"></div>
+
+<script>
+(function(){
+"use strict";
+var app = document.getElementById("app");
+var KEY = "gate-party-v1";
+var players = [{name:"나",stamps:0},{name:"친구1",stamps:0},{name:"친구2",stamps:0}];
+try { var s = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(s) && s.length) players = s; } catch(e){}
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(players)); } catch(e){} }
+function esc(t){ return String(t).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function rnd(n){ return Math.floor(Math.random()*n); }
+function pick(a){ return a[rnd(a.length)]; }
+function seat(i){ return (12+Math.floor(i/2)) + "AB".charAt(i%2); }
+function buzz(p){ try { if (navigator.vibrate) navigator.vibrate(p); } catch(e){} }
+
+var timers = [];
+function later(fn, ms){ var t = setTimeout(fn, ms); timers.push(t); return t; }
+function clearTimers(){ timers.forEach(clearTimeout); timers = []; }
+
+var actx = null;
+function beep(freq, dur){
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    var o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = freq; o.type = "square"; g.gain.value = 0.06;
+    o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + dur);
+  } catch(e){}
+}
+
+var acts = {};
+app.addEventListener("click", function(e){
+  var b = e.target.closest("[data-act]");
+  if (b && !b.disabled && acts[b.dataset.act]) acts[b.dataset.act](b);
+});
+function show(html){ clearTimers(); app.innerHTML = html; app.scrollTop = 0; }
+function topbar(label){
+  return '<div class="top"><span class="mono">'+label+'</span><button class="btn ghost small" data-act="home">그만하기</button></div>';
+}
+function stampHtml(n){ var h=""; for (var i=0;i<n;i++) h += '<span class="hanko">벌</span>'; return h; }
+
+/* ───── 홈 ───── */
+var GAMES = [
+  {id:"liar", t:"라이어 게임", d:"한 명만 제시어를 모른다. 말로 찾아내기", min:3},
+  {id:"bomb", t:"폭탄 돌리기", d:"주제에 맞게 말하고 폰 넘기기. 터지면 벌점", min:2},
+  {id:"react", t:"반응속도 대결", d:"다 같이 손가락 올리고, 신호에 제일 늦으면 벌점", min:2},
+  {id:"draw", t:"한 명 뽑기", d:"누가 할지 정할 때. 미션도 같이 나온다", min:2}
+];
+function home(){
+  var rows = players.map(function(p,i){
+    return '<div class="row"><span class="seat">'+seat(i)+'</span><span class="name">'+esc(p.name)+'</span>'+
+      '<span class="stamps">'+stampHtml(p.stamps)+'</span>'+
+      '<button class="x" data-act="del" data-i="'+i+'" aria-label="'+esc(p.name)+' 빼기">×</button></div>';
+  }).join("");
+  var games = GAMES.map(function(g,i){
+    var ok = players.length >= g.min;
+    return '<button class="game" data-act="'+g.id+'"'+(ok?'':' disabled')+'><span class="no">G'+(i+1)+'</span>'+
+      '<span><b>'+g.t+'</b><span class="d">'+(ok?g.d:g.min+'명부터 할 수 있어요')+'</span></span><span class="arr">→</span></button>';
+  }).join("");
+  show('<header class="col" style="gap:6px"><div class="route"><span class="mono">Boarding pass</span><span class="mono">ICN ✈ JPN</span></div>'+
+    '<h1>탑승 전 한판</h1><p class="muted">폰 하나를 돌려가며 하는 게임. 지는 사람은 도장 하나.</p></header>'+
+    '<div class="pass"><section><span class="mono">탑승객 '+players.length+'명</span><div class="rows">'+rows+'</div>'+
+    (players.length<8 ? '<form class="add" id="addform"><input id="newname" maxlength="8" placeholder="이름 추가" autocomplete="off" enterkeyhint="done"><button class="btn small" type="submit">추가</button></form>' : '')+
+    '</section><div class="tear"></div><section><span class="mono">게임 고르기</span><div class="rows">'+games+'</div></section></div>'+
+    (players.some(function(p){return p.stamps;}) ? '<button class="link" data-act="reset">도장 모두 지우기</button>' : ''));
+  var f = document.getElementById("addform");
+  if (f) f.addEventListener("submit", function(e){
+    e.preventDefault();
+    var v = document.getElementById("newname").value.trim();
+    if (!v) return;
+    players.push({name:v, stamps:0}); save(); home();
+    var n = document.getElementById("newname"); if (n) n.focus();
+  });
+}
+acts.home = home;
+acts.del = function(b){ players.splice(+b.dataset.i,1); save(); home(); };
+acts.reset = function(){ players.forEach(function(p){p.stamps=0;}); save(); home(); };
+
+/* ───── 라이어 게임 ───── */
+var WORDS = {
+  "일본 음식":["라멘","초밥","타코야키","오코노미야키","규동","우동","돈카츠","야키토리","모찌","카레"],
+  "여행":["여권","캐리어","면세점","기내식","환전","온천","료칸","신칸센","자판기","보조배터리"],
+  "장소":["공항","놀이공원","찜질방","노래방","PC방","영화관","편의점","수영장","도서관","헬스장"],
+  "한국 음식":["떡볶이","치킨","삼겹살","김밥","냉면","짜장면","마라탕","순대","비빔밥","라면"],
+  "동물":["고양이","펭귄","기린","수달","판다","앵무새","사슴","문어","다람쥐","악어"]
+};
+var L = null;
+acts.liar = function(){
+  show('<div class="stage">'+topbar("G1 · 라이어 게임")+'<div class="center"><h2>주제를 골라요</h2>'+
+    '<p class="muted">한 명만 제시어를 못 봅니다. 한 명씩 제시어를 설명하고, 누가 라이어인지 찾아내세요.</p>'+
+    '<div class="chips">'+Object.keys(WORDS).map(function(c){return '<button class="chip" data-act="liarcat" data-c="'+c+'">'+c+'</button>';}).join("")+'</div></div></div>');
+};
+acts.liarcat = function(b){
+  L = {cat:b.dataset.c, word:pick(WORDS[b.dataset.c]), liar:rnd(players.length), i:0, first:rnd(players.length)};
+  liarPass();
+};
+function liarPass(){
+  var p = players[L.i];
+  show('<div class="stage">'+topbar(L.cat+' · '+(L.i+1)+'/'+players.length)+'<div class="center">'+
+    '<p class="muted">이 사람에게 폰을 넘기세요</p><div class="big">'+esc(p.name)+'</div>'+
+    '<div class="hold" id="hold"><span id="holdtxt" class="muted">혼자만 보이게 가리고<br><b>여기를 꾹 누르고 있기</b></span></div></div>'+
+    '<button class="btn" id="next" data-act="liarnext" disabled>'+(L.i+1<players.length?'확인했어요, 다음 사람':'모두 확인 완료')+'</button></div>');
+  var h = document.getElementById("hold"), t = document.getElementById("holdtxt");
+  var isLiar = L.i === L.liar;
+  function on(e){ e.preventDefault(); h.classList.add("on");
+    t.className = "big" + (isLiar?" liar":""); t.textContent = isLiar ? "당신은 라이어" : L.word;
+    document.getElementById("next").disabled = false; }
+  function off(){ h.classList.remove("on"); t.className = "muted"; t.innerHTML = "다시 보려면 꾹 누르기"; }
+  h.addEventListener("pointerdown", on); h.addEventListener("pointerup", off);
+  h.addEventListener("pointercancel", off); h.addEventListener("pointerleave", off);
+  h.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+}
+acts.liarnext = function(){
+  L.i++;
+  if (L.i < players.length) return liarPass();
+  var left = 120;
+  show('<div class="stage">'+topbar("토론 · "+L.cat)+'<div class="center"><p class="muted">'+esc(players[L.first].name)+'부터 돌아가며 제시어를 한마디씩 설명하세요</p>'+
+    '<div class="big" id="clock" style="font-variant-numeric:tabular-nums">2:00</div>'+
+    '<p class="muted">너무 티 나게 말하면 라이어가 눈치채요. 시간이 끝나면 하나, 둘, 셋에 라이어를 지목!</p></div>'+
+    '<button class="btn red" data-act="liarreveal">라이어 공개</button></div>');
+  (function tick(){
+    var c = document.getElementById("clock"); if (!c) return;
+    c.textContent = Math.floor(left/60)+":"+("0"+left%60).slice(-2);
+    if (left === 0){ buzz([200,100,200]); beep(880,.4); return; }
+    left--; later(tick, 1000);
+  })();
+};
+acts.liarreveal = function(){
+  show('<div class="stage">'+topbar("결과")+'<div class="center"><p class="muted">라이어는</p><div class="big liar">'+esc(players[L.liar].name)+'</div>'+
+    '<p>제시어는 <b>'+esc(L.word)+'</b></p><p class="muted">지목당한 라이어가 제시어를 맞히면 라이어의 역전승입니다.</p></div>'+
+    '<div class="col"><button class="btn" data-act="liarcaught">라이어를 잡았다 (라이어 벌점)</button>'+
+    '<button class="btn ghost" data-act="liarfree">라이어가 이겼다 (나머지 벌점)</button></div></div>');
+};
+acts.liarcaught = function(){ players[L.liar].stamps++; save(); stamped([players[L.liar].name], "liar"); };
+acts.liarfree = function(){
+  var names = []; players.forEach(function(p,i){ if (i!==L.liar){ p.stamps++; names.push(p.name); } });
+  save(); stamped(names, "liar");
+};
+
+function stamped(names, again){
+  buzz(150);
+  show('<div class="stage">'+topbar("벌점")+'<div class="center"><div class="sealbig">벌점</div>'+
+    '<div class="big" style="font-size:2rem">'+names.map(esc).join(", ")+'</div><p class="muted">도장 하나 추가</p></div>'+
+    '<div class="col"><button class="btn" data-act="'+again+'">한 판 더</button><button class="btn ghost" data-act="home">게임 고르기</button></div></div>');
+}
+
+/* ───── 폭탄 돌리기 ───── */
+var TOPICS = ["일본 음식 이름","일본 도시·지역 이름","캐리어에 챙긴 물건","공항에 있는 것","편의점에서 살 것","애니·만화 제목",
+  "일본어 단어 아무거나","비행기 안에서 할 수 있는 일","과일 이름","아이돌 그룹 이름","라면 종류","나라 이름","여행 가서 꼭 찍는 사진"];
+var B = null;
+acts.bomb = function(){
+  B = {topic:pick(TOPICS), cur:rnd(players.length)};
+  show('<div class="stage">'+topbar("G2 · 폭탄 돌리기")+'<div class="center"><p class="muted">이번 주제</p><div class="big" style="font-size:2.2rem">'+B.topic+'</div>'+
+    '<p class="muted">주제에 맞는 말을 하나 하고 버튼을 눌러 다음 사람에게 넘기세요. 이미 나온 말은 안 됩니다. 폭탄은 언제 터질지 몰라요.</p>'+
+    '<p><b>'+esc(players[B.cur].name)+'</b>부터 시작</p></div>'+
+    '<div class="col"><button class="btn red" data-act="bombstart">폭탄 점화</button><button class="btn ghost" data-act="bomb">다른 주제</button></div></div>');
+};
+acts.bombstart = function(){
+  B.total = 12000 + rnd(26000); B.end = Date.now() + B.total;
+  bombDraw();
+  (function tick(){
+    var left = B.end - Date.now();
+    if (left <= 0) return bombBoom();
+    var el = document.getElementById("bombicon");
+    if (el){ el.classList.remove("tick"); void el.offsetWidth; el.classList.add("tick"); }
+    beep(left < 5000 ? 1100 : 700, .05);
+    later(tick, Math.max(130, Math.min(900, left/B.total*900)));
+  })();
+};
+function bombDraw(){
+  var keep = timers; timers = [];
+  show('<div class="stage">'+topbar(B.topic)+'<div class="center"><div class="bomb" id="bombicon">폭탄</div>'+
+    '<p class="muted">지금 폭탄을 든 사람</p><div class="big">'+esc(players[B.cur].name)+'</div></div>'+
+    '<button class="btn" data-act="bombpass" style="min-height:96px;font-size:1.2rem">말했다! 다음 사람에게</button></div>');
+  timers = keep;
+}
+acts.bombpass = function(){ B.cur = (B.cur+1) % players.length; bombDraw(); };
+function bombBoom(){
+  buzz([300,80,300]); beep(120,.6);
+  players[B.cur].stamps++; save();
+  stamped([players[B.cur].name], "bomb");
+  var b = app.querySelector(".big"); if (b) b.insertAdjacentHTML("beforebegin", '<p class="boom"><b>펑!</b></p>');
+}
+
+/* ───── 반응속도 대결 ───── */
+var R = null;
+acts.react = function(){
+  show('<div class="stage">'+topbar("G3 · 반응속도 대결")+'<div class="center"><h2>폰을 가운데 놓고<br>각자 자기 칸 앞에 손가락 준비</h2>'+
+    '<p class="muted">칸이 초록색으로 바뀌면 바로 터치. 제일 늦은 사람이 벌점입니다. 바뀌기 전에 누르면 부정 출발로 바로 벌점.</p></div>'+
+    '<button class="btn" data-act="reactgo">준비 완료</button></div>');
+};
+acts.reactgo = function(){
+  R = {phase:"wait", taps:[], t0:0};
+  show('<div class="stage"><div class="zones" id="zones">'+players.map(function(p,i){
+    return '<div class="zone" data-z="'+i+'"><span>'+esc(p.name)+'</span><small>기다려…</small></div>';
+  }).join("")+'</div></div>');
+  var z = document.getElementById("zones");
+  z.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+  z.addEventListener("pointerdown", function(e){
+    var el = e.target.closest(".zone"); if (!el || R.phase === "end") return;
+    e.preventDefault();
+    var i = +el.dataset.z;
+    if (R.phase === "wait"){ el.classList.add("out"); el.lastChild.textContent = "부정 출발"; return reactEnd([i], "부정 출발"); }
+    if (R.taps.some(function(t){return t.i===i;})) return;
+    var ms = Math.round(performance.now() - R.t0);
+    R.taps.push({i:i, ms:ms}); el.classList.add("done"); el.lastChild.textContent = ms+"ms";
+    if (R.taps.length === players.length) reactEnd([i], "제일 늦음 · "+ms+"ms");
+  });
+  later(function(){
+    R.phase = "go"; R.t0 = performance.now(); z.classList.add("go"); beep(900,.12);
+    z.querySelectorAll("small").forEach(function(s){ s.textContent = "지금!"; });
+    later(function(){
+      var miss = []; players.forEach(function(p,i){ if (!R.taps.some(function(t){return t.i===i;})) miss.push(i); });
+      reactEnd(miss, "3초 동안 안 누름");
+    }, 3000);
+  }, 2000 + rnd(3500));
+};
+function reactEnd(losers, why){
+  if (R.phase === "end") return;
+  R.phase = "end"; clearTimers();
+  losers.forEach(function(i){ players[i].stamps++; var el = app.querySelector('[data-z="'+i+'"]'); if (el) el.classList.add("out"); });
+  save(); buzz(200);
+  var names = losers.map(function(i){return players[i].name;});
+  later(function(){
+    stamped(names, "reactgo");
+    var b = app.querySelector(".big"); if (b) b.insertAdjacentHTML("afterend", '<p class="mono">'+esc(why)+'</p>');
+  }, 1400);
+}
+
+/* ───── 한 명 뽑기 ───── */
+var MISSIONS = ["도착해서 첫 편의점 간식 쏘기","창가 자리 양보하기","여행 내내 단체 사진 담당","첫 끼 메뉴 결정권","숙소 체크인 담당",
+  "오늘의 길 찾기 담당","수하물 찾을 때 캐리어 내려주기","기내에서 음료 대신 받아주기","첫날 저녁 맛집 줄 서기"];
+acts.draw = function(){
+  show('<div class="stage">'+topbar("G4 · 한 명 뽑기")+'<div class="center"><p class="muted" id="dmsg">누가 걸릴까</p>'+
+    '<div class="big" id="dname">?</div><p id="dmis" class="muted">&nbsp;</p></div>'+
+    '<button class="btn" id="dbtn" data-act="drawgo">뽑기</button></div>');
+};
+acts.drawgo = function(){
+  var btn = document.getElementById("dbtn"), nm = document.getElementById("dname"), mis = document.getElementById("dmis");
+  btn.disabled = true; mis.innerHTML = "&nbsp;"; nm.classList.remove("liar");
+  var steps = 16 + rnd(players.length), n = 0, i = rnd(players.length);
+  (function spin(){
+    i = (i+1) % players.length; nm.textContent = players[i].name; beep(600,.03); n++;
+    if (n < steps) return later(spin, 60 + n*n*1.4);
+    nm.classList.add("liar"); buzz(200);
+    document.getElementById("dmsg").textContent = "당첨";
+    mis.textContent = pick(MISSIONS); mis.className = "";
+    btn.disabled = false; btn.textContent = "다시 뽑기";
+  })();
+};
+
+home();
+})();
+</script>
+</body>
+</html>
