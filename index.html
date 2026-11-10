@@ -30,6 +30,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:
 *{box-sizing:border-box}
 #app{flex:1;min-height:0;width:100%;max-width:480px;margin:0 auto;display:flex;flex-direction:column;gap:16px;
   padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));overflow-y:auto}
+#app > :not(.stage){flex-shrink:0}
 h1,h2,p{margin:0}
 h1{font-family:var(--display);font-weight:400;font-size:2.4rem;line-height:1.1;text-wrap:balance}
 h2{font-family:var(--display);font-weight:400;font-size:1.6rem;line-height:1.15;text-wrap:balance}
@@ -95,6 +96,19 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--sky);outline-of
 .zones .zone.done{background:var(--card);border-color:var(--go);color:var(--ink)}
 .zones .zone.out{background:var(--stamp);border-color:var(--stamp);color:var(--on-accent)}
 .zone small{font-family:var(--mono);font-weight:500;font-size:.8rem}
+.seg{display:flex;border:1.5px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+.seg button{flex:1;padding:12px 8px;font-weight:700;min-height:46px;color:var(--muted)}
+.seg button.on{background:var(--ink);color:var(--paper)}
+.step{display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
+.step b{min-width:2.2em;text-align:center;font-family:var(--mono)}
+.step .x{border:1.5px solid var(--line);color:var(--ink);width:40px;height:40px}
+.code{width:5.2em;font:inherit;font-family:var(--mono);font-size:1.15rem;letter-spacing:.15em;text-align:center;color:var(--ink);
+  background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:8px}
+.grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;width:100%;touch-action:none;user-select:none;-webkit-user-select:none}
+.cell{aspect-ratio:1;border-radius:10px;background:var(--card);border:1.5px solid var(--line);font-family:var(--mono);font-size:1.25rem;touch-action:none}
+.cell.hit{opacity:.2}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%}
+.opts .btn{font-size:1.5rem;min-height:84px;font-family:var(--mono)}
 @media (prefers-reduced-motion: reduce){ .bomb.tick,.sealbig{animation:none} }
 </style>
 
@@ -147,6 +161,7 @@ var GAMES = [
   {id:"draw", t:"한 명 뽑기", d:"누가 할지 정할 때. 미션도 같이 나온다", min:2}
 ];
 function home(){
+  if (mode === "multi") return lobby();
   var rows = players.map(function(p,i){
     return '<div class="row"><span class="seat">'+seat(i)+'</span><span class="name">'+esc(p.name)+'</span>'+
       '<span class="stamps">'+stampHtml(p.stamps)+'</span>'+
@@ -158,7 +173,7 @@ function home(){
       '<span><b>'+g.t+'</b><span class="d">'+(ok?g.d:g.min+'명부터 할 수 있어요')+'</span></span><span class="arr">→</span></button>';
   }).join("");
   show('<header class="col" style="gap:6px"><div class="route"><span class="mono">Boarding pass</span><span class="mono">ICN ✈ JPN</span></div>'+
-    '<h1>탑승 전 한판</h1><p class="muted">폰 하나를 돌려가며 하는 게임. 지는 사람은 도장 하나.</p></header>'+
+    '<h1>탑승 전 한판</h1><p class="muted">폰 하나를 돌려가며 하는 게임. 지는 사람은 도장 하나.</p></header>'+tabs()+
     '<div class="pass"><section><span class="mono">탑승객 '+players.length+'명</span><div class="rows">'+rows+'</div>'+
     (players.length<8 ? '<form class="add" id="addform"><input id="newname" maxlength="8" placeholder="이름 추가" autocomplete="off" enterkeyhint="done"><button class="btn small" type="submit">추가</button></form>' : '')+
     '</section><div class="tear"></div><section><span class="mono">게임 고르기</span><div class="rows">'+games+'</div></section></div>'+
@@ -346,6 +361,163 @@ acts.drawgo = function(){
     document.getElementById("dmsg").textContent = "당첨";
     mis.textContent = pick(MISSIONS); mis.className = "";
     btn.disabled = false; btn.textContent = "다시 뽑기";
+  })();
+};
+
+/* ───── 각자 폰으로: 같은 방 코드 → 같은 난수 → 서버 없이 같은 판 ───── */
+var mode = "solo", M = {code:"", n:3, me:1, round:1}, ML = null;
+try { var ms = JSON.parse(localStorage.getItem(KEY+"-m")); if (ms && ms.M){ M = ms.M; mode = ms.mode === "multi" ? "multi" : "solo"; } } catch(e){}
+function msave(){ try { localStorage.setItem(KEY+"-m", JSON.stringify({M:M, mode:mode})); } catch(e){} }
+function rng(tag){
+  var str = M.code+"|"+M.n+"|"+M.round+"|"+tag, h = 1779033703 ^ str.length;
+  for (var i=0;i<str.length;i++){ h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = h<<13 | h>>>19; }
+  h = Math.imul(h ^ h>>>16, 2246822507); h = Math.imul(h ^ h>>>13, 3266489909); var s = (h ^ h>>>16) >>> 0;
+  return function(){ s |= 0; s = s + 0x6D2B79F5 | 0; var t = Math.imul(s ^ s>>>15, 1|s);
+    t = t + Math.imul(t ^ t>>>7, 61|t) ^ t; return ((t ^ t>>>14) >>> 0) / 4294967296; };
+}
+function ri(r, n){ return Math.floor(r()*n); }
+function tabs(){
+  return '<div class="seg"><button data-act="mode" data-m="solo" class="'+(mode==="solo"?"on":"")+'">폰 하나로</button>'+
+    '<button data-act="mode" data-m="multi" class="'+(mode==="multi"?"on":"")+'">각자 폰으로</button></div>';
+}
+acts.mode = function(b){ mode = b.dataset.m; msave(); home(); };
+function mlabel(){ return "방 "+esc(M.code)+" · R"+M.round+" · "+M.me+"번"; }
+function codeOk(){ return /^\d{4}$/.test(M.code); }
+var MG = [
+  {id:"mliar", t:"라이어 게임", d:"각자 폰에 제시어가 뜬다. 한 명만 라이어", min:3},
+  {id:"mgrid", t:"숫자 찾기", d:"모두 같은 판. 1부터 25까지 빨리 누르기", min:2},
+  {id:"mmath", t:"30초 암산", d:"모두 같은 문제. 틀리면 1점 감점", min:2},
+  {id:"mdraw", t:"동시에 뽑기", d:"모든 폰에 같은 당첨 번호가 뜬다", min:2}
+];
+function stepper(k, label){
+  return '<div class="row"><span class="name">'+label+'</span><span class="step">'+
+    '<button class="x" data-act="step" data-k="'+k+'" data-d="-1" aria-label="'+label+' 줄이기">−</button><b>'+M[k]+'</b>'+
+    '<button class="x" data-act="step" data-k="'+k+'" data-d="1" aria-label="'+label+' 늘리기">+</button></span></div>';
+}
+function lobby(){
+  var games = MG.map(function(g,i){
+    return '<button class="game" data-act="'+g.id+'" data-min="'+g.min+'"'+(codeOk() && M.n>=g.min?'':' disabled')+'><span class="no">G'+(i+1)+'</span>'+
+      '<span><b>'+g.t+'</b><span class="d">'+(M.n>=g.min?g.d:g.min+'명부터 할 수 있어요')+'</span></span><span class="arr">→</span></button>';
+  }).join("");
+  show('<header class="col" style="gap:6px"><div class="route"><span class="mono">Boarding pass</span><span class="mono">ICN ✈ JPN</span></div>'+
+    '<h1>탑승 전 한판</h1><p class="muted">각자 폰에서 같은 방 코드를 넣으면 같은 판이 열립니다. 인터넷이 끊겨도 됩니다.</p></header>'+tabs()+
+    '<div class="pass"><section><span class="mono">방 맞추기</span><div class="rows">'+
+    '<div class="row"><span class="name">방 코드</span><input id="code" class="code" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="off" value="'+esc(M.code)+'">'+
+    '<button class="btn ghost small" data-act="newcode">새 코드</button></div>'+
+    stepper("n","인원")+stepper("me","내 번호")+stepper("round","라운드")+'</div>'+
+    '<p class="muted" style="font-size:.85rem">한 명이 새 코드를 만들어 불러주세요. 방 코드, 인원, 라운드는 모두 똑같이, 내 번호만 서로 다르게 맞춥니다.</p>'+
+    '</section><div class="tear"></div><section><span class="mono">게임 고르기</span><div class="rows">'+games+'</div></section></div>');
+  document.getElementById("code").addEventListener("input", function(e){
+    M.code = e.target.value.replace(/\D/g,"").slice(0,4); e.target.value = M.code; msave();
+    app.querySelectorAll(".game").forEach(function(b){ b.disabled = !(codeOk() && M.n >= +b.dataset.min); });
+  });
+}
+acts.step = function(b){
+  var k = b.dataset.k; M[k] += +b.dataset.d;
+  M.n = Math.max(2, Math.min(10, M.n)); M.me = Math.max(1, Math.min(M.n, M.me)); M.round = Math.max(1, Math.min(999, M.round));
+  msave(); lobby();
+};
+acts.newcode = function(){ M.code = String(1000 + rnd(9000)); M.round = 1; msave(); lobby(); };
+function mfoot(g){
+  return '<div class="col"><button class="btn" data-act="mnext" data-g="'+g+'">다 같이 다음 라운드 (R'+(M.round+1)+')</button>'+
+    '<button class="btn ghost" data-act="home">게임 고르기</button></div>';
+}
+acts.mnext = function(b){ M.round++; msave(); acts[b.dataset.g](); };
+function mresult(big, sub, g){
+  buzz(150);
+  show('<div class="stage">'+topbar(mlabel())+'<div class="center"><p class="muted">'+M.me+'번의 기록</p><div class="big">'+big+'</div>'+
+    '<p class="muted">'+sub+'</p></div>'+mfoot(g)+'</div>');
+}
+function mready(title, desc, act){
+  show('<div class="stage">'+topbar(mlabel())+'<div class="center"><h2>'+title+'</h2><p class="muted">'+desc+'</p>'+
+    '<p class="muted">모두 화면 위의 방 코드와 라운드가 같은지 확인하고, 하나 둘 셋에 동시에 누르세요.</p></div>'+
+    '<button class="btn" data-act="'+act+'">시작</button></div>');
+}
+
+acts.mliar = function(){
+  var r = rng("liar"), cats = Object.keys(WORDS), cat = cats[ri(r,cats.length)], word = WORDS[cat][ri(r,WORDS[cat].length)];
+  var liar = 1 + ri(r,M.n), first = 1 + ri(r,M.n), isLiar = liar === M.me;
+  ML = {liar:liar, word:word};
+  show('<div class="stage">'+topbar(mlabel())+'<div class="center"><p class="muted">이번 주제</p><h2>'+cat+'</h2>'+
+    '<div class="hold" id="hold"><span id="holdtxt" class="muted">남들 안 보이게 가리고<br><b>여기를 꾹 누르고 있기</b></span></div>'+
+    '<p class="muted">'+first+'번부터 돌아가며 제시어를 한마디씩 설명하고, 하나 둘 셋에 라이어를 지목하세요.</p></div>'+
+    '<button class="btn red" data-act="mliarshow">라이어 공개</button></div>');
+  var h = document.getElementById("hold"), t = document.getElementById("holdtxt");
+  function on(e){ e.preventDefault(); h.classList.add("on"); t.className = "big"+(isLiar?" liar":""); t.textContent = isLiar ? "당신은 라이어" : word; }
+  function off(){ h.classList.remove("on"); t.className = "muted"; t.textContent = "다시 보려면 꾹 누르기"; }
+  h.addEventListener("pointerdown", on); h.addEventListener("pointerup", off);
+  h.addEventListener("pointercancel", off); h.addEventListener("pointerleave", off);
+  h.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+};
+acts.mliarshow = function(){
+  show('<div class="stage">'+topbar(mlabel())+'<div class="center"><p class="muted">라이어는</p><div class="big liar">'+ML.liar+'번'+(ML.liar===M.me?' (나)':'')+'</div>'+
+    '<p>제시어는 <b>'+esc(ML.word)+'</b></p><p class="muted">지목당한 라이어가 제시어를 맞히면 라이어의 역전승입니다.</p></div>'+mfoot("mliar")+'</div>');
+};
+
+acts.mgrid = function(){ mready("1부터 25까지<br>순서대로 누르기", "모두에게 같은 숫자판이 나옵니다. 제일 오래 걸린 사람이 벌칙.", "mgridgo"); };
+acts.mgridgo = function(){
+  var r = rng("grid"), a = [], i, j, tmp, next = 1, t0 = performance.now();
+  for (i=1;i<=25;i++) a.push(i);
+  for (i=24;i>0;i--){ j = ri(r,i+1); tmp = a[i]; a[i] = a[j]; a[j] = tmp; }
+  show('<div class="stage">'+topbar(mlabel())+'<div class="center"><p class="mono">다음 숫자 <b id="nx">1</b></p><div class="grid5" id="g5">'+
+    a.map(function(v){ return '<button class="cell" data-v="'+v+'">'+v+'</button>'; }).join("")+'</div></div></div>');
+  document.getElementById("g5").addEventListener("pointerdown", function(e){
+    var c = e.target.closest(".cell"); if (!c) return;
+    e.preventDefault();
+    if (+c.dataset.v !== next){ buzz(60); return; }
+    c.classList.add("hit"); next++;
+    if (next > 25) mresult(((performance.now()-t0)/1000).toFixed(2)+"초", "서로 기록을 불러보세요. 제일 오래 걸린 사람이 벌칙.", "mgrid");
+    else document.getElementById("nx").textContent = next;
+  });
+};
+
+acts.mmath = function(){ mready("30초 암산", "모두에게 같은 문제가 같은 순서로 나옵니다. 맞히면 1점, 틀리면 1점 감점.", "mmathgo"); };
+acts.mmathgo = function(){
+  var r = rng("math"), score = 0, left = 30, ans = 0;
+  show('<div class="stage">'+topbar(mlabel())+'<div class="center"><p class="mono"><span id="mclock">30</span>초 · <span id="mscore">0</span>점</p>'+
+    '<div class="big" id="mq"></div><div class="opts" id="mopts"></div></div></div>');
+  function ask(){
+    var op = ri(r,3), a, b, opts, d, i, j, tmp;
+    if (op === 0){ a = 10+ri(r,80); b = 10+ri(r,80); ans = a+b; }
+    else if (op === 1){ a = 30+ri(r,70); b = 5+ri(r,25); ans = a-b; }
+    else { a = 3+ri(r,10); b = 3+ri(r,7); ans = a*b; }
+    opts = [ans];
+    while (opts.length < 4){ d = ans + pickd(r); if (d >= 0 && opts.indexOf(d) < 0) opts.push(d); }
+    for (i=3;i>0;i--){ j = ri(r,i+1); tmp = opts[i]; opts[i] = opts[j]; opts[j] = tmp; }
+    document.getElementById("mq").textContent = a+" "+"+−×".charAt(op)+" "+b;
+    document.getElementById("mopts").innerHTML = opts.map(function(v){ return '<button class="btn ghost" data-v="'+v+'">'+v+'</button>'; }).join("");
+  }
+  function pickd(r){ var c = [-10,-2,-1,1,2,10]; return c[ri(r,c.length)]; }
+  document.getElementById("mopts").addEventListener("pointerdown", function(e){
+    var b = e.target.closest("[data-v]"); if (!b) return;
+    e.preventDefault();
+    if (+b.dataset.v === ans) score++; else { score--; buzz(60); }
+    document.getElementById("mscore").textContent = score;
+    ask();
+  });
+  ask();
+  (function tick(){
+    if (left === 0) return mresult(score+"점", "서로 점수를 불러보세요. 점수가 제일 낮은 사람이 벌칙.", "mmath");
+    document.getElementById("mclock").textContent = left; left--; later(tick, 1000);
+  })();
+};
+
+acts.mdraw = function(){
+  show('<div class="stage">'+topbar(mlabel())+'<div class="center"><p class="muted" id="dmsg">모든 폰에 같은 번호가 나옵니다</p>'+
+    '<div class="big" id="dname">?</div><p id="dmis" class="muted">&nbsp;</p></div>'+
+    '<div class="col" id="dfoot"><button class="btn" id="dbtn" data-act="mdrawgo">하나 둘 셋에 뽑기</button></div></div>');
+};
+acts.mdrawgo = function(){
+  var r = rng("draw"), k = 1 + ri(r,M.n), mission = MISSIONS[ri(r,MISSIONS.length)], n = 0, i = 0;
+  var nm = document.getElementById("dname");
+  document.getElementById("dbtn").disabled = true;
+  (function spin(){
+    i = i % M.n + 1; nm.textContent = i+"번"; beep(600,.03); n++;
+    if (n < 18) return later(spin, 60 + n*n*1.4);
+    nm.textContent = k+"번"; nm.classList.add("liar"); buzz(200);
+    document.getElementById("dmsg").textContent = k === M.me ? "당첨, 바로 나" : "당첨";
+    var mis = document.getElementById("dmis"); mis.textContent = mission; mis.className = "";
+    document.getElementById("dfoot").outerHTML = mfoot("mdraw");
   })();
 };
 
