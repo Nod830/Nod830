@@ -521,6 +521,96 @@ acts.mdrawgo = function(){
   })();
 };
 
+/* ───── 추가 게임 ───── */
+var CHO = "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅍㅎ";
+var POINTQ = ["여행 가서 제일 먼저 길 잃을 것 같은 사람","여권을 숙소에 두고 나올 것 같은 사람","면세점에서 돈을 제일 많이 쓸 사람",
+  "아침에 제일 늦게 일어날 사람","일본어를 제일 자신 있게 틀릴 사람","사진을 제일 많이 찍을 사람","편의점에서 제일 오래 못 나올 사람",
+  "비행기에서 제일 먼저 잠들 사람","일정을 제일 빡빡하게 짤 사람","맛집 줄 서다 제일 먼저 포기할 사람","캐리어가 제일 무거울 사람",
+  "기념품을 제일 많이 살 사람","술에 제일 먼저 취할 사람","정산을 제일 꼼꼼하게 할 사람","돌아오는 날 제일 아쉬워할 사람"];
+function choScreen(r, label, foot){
+  show('<div class="stage">'+topbar(label)+'<div class="center"><p class="muted">이 초성으로 된 단어를 먼저 외친 사람이 승리</p>'+
+    '<div class="big" style="font-size:5.5rem;letter-spacing:.15em">'+CHO.charAt(ri(r,CHO.length))+CHO.charAt(ri(r,CHO.length))+'</div>'+
+    '<p class="muted">같은 단어는 한 번만. 5초 안에 못 외친 사람이 벌칙으로 해도 좋아요.</p></div>'+foot+'</div>');
+}
+function pointScreen(r, label, foot){
+  show('<div class="stage">'+topbar(label)+'<div class="center"><p class="muted">하나 둘 셋에 손가락으로 지목</p>'+
+    '<h2>'+POINTQ[ri(r,POINTQ.length)]+'은?</h2><p class="muted">제일 많이 지목된 사람이 벌칙</p></div>'+foot+'</div>');
+}
+function sfoot(act){
+  return '<div class="col"><button class="btn" data-act="'+act+'">다음 문제</button><button class="btn ghost" data-act="home">게임 고르기</button></div>';
+}
+GAMES.push({id:"cho", t:"초성 퀴즈", d:"초성 두 글자로 단어 먼저 외치기", min:2},
+           {id:"point", t:"지목 게임", d:"질문에 맞는 사람을 동시에 지목", min:3});
+acts.cho = function(){ choScreen(Math.random, "G5 · 초성 퀴즈", sfoot("cho")); };
+acts.point = function(){ pointScreen(Math.random, "G6 · 지목 게임", sfoot("point")); };
+
+MG.push({id:"mcho", t:"초성 퀴즈", d:"모든 폰에 같은 초성. 먼저 외치면 승리", min:2},
+        {id:"mpoint", t:"지목 게임", d:"같은 질문을 보고 동시에 지목", min:3},
+        {id:"mcolor", t:"색깔 함정", d:"글자 뜻 말고 색을 고르기. 30초", min:2},
+        {id:"mten", t:"딱 10초", d:"시계 없이 10.00초에 멈추기", min:2},
+        {id:"mtap", t:"10초 연타", d:"10초 동안 제일 많이 두드리기", min:2});
+acts.mcho = function(){ mready("초성 퀴즈", "모든 폰에 같은 초성 두 글자가 뜹니다. 그 초성으로 된 단어를 먼저 외친 사람이 승리.", "mchogo"); };
+acts.mchogo = function(){ choScreen(rng("cho"), mlabel(), mfoot("mcho")); };
+acts.mpoint = function(){ pointScreen(rng("point"), mlabel(), mfoot("mpoint")); };
+
+acts.mcolor = function(){ mready("색깔 함정", "글자의 뜻이 아니라 글자의 색을 고르세요. 30초 동안 맞히면 1점, 틀리면 1점 감점.", "mcolorgo"); };
+acts.mcolorgo = function(){
+  var r = rng("color"), C = [["빨강","--stamp"],["파랑","--sky"],["초록","--go"]], score = 0, left = 30, ans = 0;
+  show('<div class="stage">'+topbar(mlabel())+'<div class="center"><p class="mono"><span id="cclock">30</span>초 · <span id="cscore">0</span>점</p>'+
+    '<div class="big" id="cq" style="font-size:4.5rem"></div><div class="opts" id="copts" style="grid-template-columns:repeat(3,1fr)">'+
+    C.map(function(c,i){ return '<button class="btn ghost" data-v="'+i+'" style="font-family:var(--body);font-size:1.2rem">'+c[0]+'</button>'; }).join("")+'</div></div></div>');
+  function ask(){
+    var q = document.getElementById("cq"), w = ri(r,3); ans = ri(r,3);
+    q.textContent = C[w][0]; q.style.color = "var("+C[ans][1]+")";
+  }
+  document.getElementById("copts").addEventListener("pointerdown", function(e){
+    var b = e.target.closest("[data-v]"); if (!b) return;
+    e.preventDefault();
+    if (+b.dataset.v === ans) score++; else { score--; buzz(60); }
+    document.getElementById("cscore").textContent = score; ask();
+  });
+  ask();
+  (function tick(){
+    if (left === 0) return mresult(score+"점", "서로 점수를 불러보세요. 점수가 제일 낮은 사람이 벌칙.", "mcolor");
+    document.getElementById("cclock").textContent = left; left--; later(tick, 1000);
+  })();
+};
+
+var T = {run:false, t0:0};
+acts.mten = function(){
+  T = {run:false, t0:0};
+  show('<div class="stage">'+topbar(mlabel())+'<div class="center"><h2>딱 10초에 멈추기</h2>'+
+    '<p class="muted">시작하면 시계가 3초까지만 보이고 사라집니다. 속으로 세다가 10.00초다 싶을 때 멈추세요.</p>'+
+    '<div class="big" id="tclock" style="font-variant-numeric:tabular-nums">0.00</div></div>'+
+    '<button class="btn" data-act="mtengo" style="min-height:96px;font-size:1.2rem">시작</button></div>');
+};
+acts.mtengo = function(b){
+  if (!T.run){
+    T = {run:true, t0:performance.now()}; b.textContent = "지금 멈추기"; b.classList.add("red");
+    (function f(){
+      var c = document.getElementById("tclock"), e = (performance.now()-T.t0)/1000; if (!c) return;
+      c.textContent = e < 3 ? e.toFixed(2) : "?.??"; later(f, 50);
+    })();
+    return;
+  }
+  var e = (performance.now()-T.t0)/1000; T.run = false;
+  mresult(e.toFixed(2)+"초", "10초와 "+Math.abs(e-10).toFixed(2)+"초 차이. 차이가 제일 큰 사람이 벌칙.", "mten");
+};
+
+acts.mtap = function(){ mready("10초 연타", "10초 동안 화면을 최대한 많이 두드리세요. 제일 적게 두드린 사람이 벌칙.", "mtapgo"); };
+acts.mtapgo = function(){
+  var n = 0, left = 10;
+  show('<div class="stage">'+topbar(mlabel())+'<div class="center"><p class="mono"><span id="tl">10</span>초 남음</p>'+
+    '<div class="hold" id="pad" style="min-height:320px"><span class="big" id="tn">0</span></div></div></div>');
+  var pad = document.getElementById("pad");
+  pad.addEventListener("pointerdown", function(e){ e.preventDefault(); n++; document.getElementById("tn").textContent = n; });
+  pad.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+  (function tick(){
+    if (left === 0) return mresult(n+"번", "서로 횟수를 불러보세요. 제일 적은 사람이 벌칙.", "mtap");
+    document.getElementById("tl").textContent = left; left--; later(tick, 1000);
+  })();
+};
+
 home();
 })();
 </script>
