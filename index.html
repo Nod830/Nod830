@@ -109,11 +109,17 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--sky);outline-of
 .cell.hit{opacity:.2}
 .opts{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%}
 .opts .btn{font-size:1.5rem;min-height:84px;font-family:var(--mono)}
+.ostage{display:flex;flex-direction:column;gap:16px;flex:1 0 auto}
+.ostage .center{flex:1 0 auto}
+.note{border:1.5px solid var(--stamp);color:var(--stamp);border-radius:10px;padding:10px 12px;font-size:.9rem}
+.roomcode{font-family:var(--mono);font-size:3rem;letter-spacing:.2em;line-height:1}
+.seg button{font-size:.9rem}
 @media (prefers-reduced-motion: reduce){ .bomb.tick,.sealbig{animation:none} }
 </style>
 
 <div id="app"></div>
 
+<script async src="mqtt.min.js" onerror="var s=document.createElement('script');s.src='https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js';document.head.appendChild(s)"></script>
 <script>
 (function(){
 "use strict";
@@ -161,6 +167,7 @@ var GAMES = [
   {id:"draw", t:"한 명 뽑기", d:"누가 할지 정할 때. 미션도 같이 나온다", min:2}
 ];
 function home(){
+  if (mode === "online") return O.room ? orender(true) : oentry();
   if (mode === "multi") return lobby();
   var rows = players.map(function(p,i){
     return '<div class="row"><span class="seat">'+seat(i)+'</span><span class="name">'+esc(p.name)+'</span>'+
@@ -365,8 +372,8 @@ acts.drawgo = function(){
 };
 
 /* ───── 각자 폰으로: 같은 방 코드 → 같은 난수 → 서버 없이 같은 판 ───── */
-var mode = "solo", M = {code:"", n:3, me:1, round:1}, ML = null;
-try { var ms = JSON.parse(localStorage.getItem(KEY+"-m")); if (ms && ms.M){ M = ms.M; mode = ms.mode === "multi" ? "multi" : "solo"; } } catch(e){}
+var mode = "online", M = {code:"", n:3, me:1, round:1}, ML = null;
+try { var ms = JSON.parse(localStorage.getItem(KEY+"-m")); if (ms && ms.M){ M = ms.M; mode = /^(multi|solo|online)$/.test(ms.mode) ? ms.mode : "online"; } } catch(e){}
 function msave(){ try { localStorage.setItem(KEY+"-m", JSON.stringify({M:M, mode:mode})); } catch(e){} }
 function rng(tag){
   var str = M.code+"|"+M.n+"|"+M.round+"|"+tag, h = 1779033703 ^ str.length;
@@ -377,10 +384,10 @@ function rng(tag){
 }
 function ri(r, n){ return Math.floor(r()*n); }
 function tabs(){
-  return '<div class="seg"><button data-act="mode" data-m="solo" class="'+(mode==="solo"?"on":"")+'">폰 하나로</button>'+
-    '<button data-act="mode" data-m="multi" class="'+(mode==="multi"?"on":"")+'">각자 폰으로</button></div>';
+  return '<div class="seg">'+[["online","온라인 방"],["multi","코드 맞추기"],["solo","폰 하나"]].map(function(t){
+    return '<button data-act="mode" data-m="'+t[0]+'" class="'+(mode===t[0]?"on":"")+'">'+t[1]+'</button>'; }).join("")+'</div>';
 }
-acts.mode = function(b){ mode = b.dataset.m; msave(); home(); };
+acts.mode = function(b){ if (O.room) oleave(); mode = b.dataset.m; msave(); home(); };
 function mlabel(){ return "방 "+esc(M.code)+" · R"+M.round+" · "+M.me+"번"; }
 function codeOk(){ return /^\d{4}$/.test(M.code); }
 var MG = [
@@ -610,6 +617,274 @@ acts.mtapgo = function(){
     document.getElementById("tl").textContent = left; left--; later(tick, 1000);
   })();
 };
+
+/* ───── 온라인 방: 방장 폰이 판을 관리하고, 공개 메시지 서버로 상태를 주고받는다 ───── */
+var BROKERS = window.GP_BROKERS || ["wss://broker.emqx.io:8084/mqtt", "wss://broker.hivemq.com:8884/mqtt"];
+var O = {room:null, conns:[], S:null, isHost:false, last:"", seen:{}, ctr:0, hb:null, ht:null, wd:null, lastState:0, stale:false, err:""};
+var myId = null, myName = "";
+try { myId = localStorage.getItem(KEY+"-id"); myName = localStorage.getItem(KEY+"-name") || ""; } catch(e){}
+if (!myId){ myId = Math.random().toString(36).slice(2,10); try { localStorage.setItem(KEY+"-id", myId); } catch(e){} }
+
+function oentry(){
+  show('<header class="col" style="gap:6px"><div class="route"><span class="mono">Boarding pass</span><span class="mono">ICN ✈ JPN</span></div>'+
+    '<h1>탑승 전 한판</h1><p class="muted">한 명이 방을 만들고, 나머지는 방 번호로 들어옵니다. 인터넷 연결이 필요해요.</p></header>'+tabs()+
+    (O.err ? '<p class="note">'+esc(O.err)+'</p>' : '')+
+    '<div class="pass"><section><span class="mono">내 이름</span>'+
+    '<input id="oname" class="code" style="width:100%;letter-spacing:0;text-align:left;font-family:var(--body)" maxlength="8" placeholder="이름" autocomplete="off" value="'+esc(myName)+'">'+
+    '<button class="btn" data-act="ocreate">방 만들기</button></section><div class="tear"></div>'+
+    '<section><span class="mono">친구 방에 들어가기</span><div class="add">'+
+    '<input id="ocode" class="code" style="flex:1" inputmode="numeric" maxlength="4" placeholder="방 번호" autocomplete="off">'+
+    '<button class="btn" data-act="ojoin">입장</button></div></section></div>');
+}
+function takeName(){
+  var v = (document.getElementById("oname").value || "").trim().slice(0,8);
+  myName = v || ("손님" + (10 + rnd(90)));
+  try { localStorage.setItem(KEY+"-name", myName); } catch(e){}
+}
+acts.ocreate = function(){ takeName(); oconnect(String(1000 + rnd(9000)), true); };
+acts.ojoin = function(){
+  var code = document.getElementById("ocode").value.replace(/\D/g,"");
+  takeName();
+  if (code.length !== 4){ O.err = "방 번호 4자리를 입력하세요."; return oentry(); }
+  oconnect(code, false);
+};
+acts.oleave = function(){ oleave(); home(); };
+
+function obase(){ return "gateparty-v1/" + O.room + "/"; }
+function opub(topic, obj, retain){
+  var s = obj === null ? "" : JSON.stringify(obj);
+  O.conns.forEach(function(c){ if (c.connected) c.publish(topic, s, {retain:!!retain, qos:0}); });
+}
+function pushState(){ if (O.isHost && O.S) opub(obase()+"s", O.S, true); }
+function commit(){ O.S.v++; pushState(); orender(); }
+function sendAct(a){
+  a.id = myId; a.n = myId + ":" + Date.now() + ":" + (++O.ctr);
+  if (O.isHost) onAct(a); else opub(obase()+"a", a);
+}
+function oconnect(code, host){
+  O.err = "";
+  if (!window.mqtt){ O.err = "연결 도구를 아직 불러오지 못했어요. 인터넷을 확인하고 잠시 뒤 다시 눌러주세요."; return oentry(); }
+  O.room = code; O.isHost = host; O.S = null; O.seen = {}; O.last = ""; O.stale = false; O.lastState = Date.now();
+  if (host) O.S = {v:1, host:myId, players:[{id:myId, name:myName, pts:0}], g:null};
+  O.conns = BROKERS.map(function(url){
+    var c = window.mqtt.connect(url, {clientId:"gp_"+myId+"_"+Math.random().toString(36).slice(2,6), keepalive:20, reconnectPeriod:1500, connectTimeout:8000, clean:true});
+    c.on("connect", function(){
+      c.subscribe(obase() + (host ? "a" : "s"));
+      if (host) pushState(); else sendAct({t:"join", name:myName});
+      orender();
+    });
+    c.on("close", function(){ orender(); });
+    c.on("error", function(){});
+    c.on("message", function(topic, payload){
+      var m; try { m = JSON.parse(payload.toString()); } catch(e){ return; }
+      if (O.room !== code) return;
+      if (host) onAct(m); else onState(m);
+    });
+    return c;
+  });
+  if (host) O.hb = setInterval(pushState, 2500);
+  else O.wd = setInterval(function(){
+    if (!O.S || !ofind(myId)) sendAct({t:"join", name:myName});
+    O.stale = Date.now() - O.lastState > 9000; orender();
+  }, 3000);
+  orender();
+}
+function oleave(){
+  if (!O.room) return;
+  if (O.isHost){ opub(obase()+"s", {closed:true}); opub(obase()+"s", null, true); }
+  else sendAct({t:"leave"});
+  clearInterval(O.hb); clearInterval(O.wd); clearTimeout(O.ht);
+  O.conns.forEach(function(c){ try { c.end(); } catch(e){} });
+  O.conns = []; O.room = null; O.S = null; O.isHost = false;
+}
+function onState(m){
+  if (!m) return;
+  if (m.closed){ oleave(); O.err = "방장이 방을 닫았어요."; return home(); }
+  if (!m.players) return;
+  O.lastState = Date.now(); O.stale = false;
+  if (O.S && m.host === O.S.host && m.v <= O.S.v) return orender();
+  O.S = m; orender();
+}
+function ofind(id){ var P = O.S ? O.S.players : []; for (var i=0;i<P.length;i++) if (P[i].id === id) return P[i]; return null; }
+function oname(id){ var p = ofind(id); return p ? p.name : "나간 사람"; }
+function addPts(ids){ ids.forEach(function(id){ var p = ofind(id); if (p) p.pts++; }); }
+
+/* 방장 쪽 판정 */
+function onAct(a){
+  if (!a || !a.id || !a.n || O.seen[a.n] || !O.S) return;
+  O.seen[a.n] = 1;
+  var S = O.S, g = S.g, P = S.players, inG = g && g.ids.indexOf(a.id) >= 0, now = Date.now(), i;
+  if (a.t === "join"){
+    if (ofind(a.id)) return pushState();
+    if (P.length >= 12) return;
+    P.push({id:a.id, name:String(a.name || "손님").slice(0,8), pts:0}); return commit();
+  }
+  if (a.t === "leave"){
+    if (a.id === S.host) return;
+    S.players = P.filter(function(p){ return p.id !== a.id; }); return commit();
+  }
+  if (!inG) return;
+  if (a.t === "vote" && (g.k === "liar" || g.k === "point") && g.phase === "vote" && a.to !== a.id && g.ids.indexOf(a.to) >= 0){
+    g.votes[a.id] = a.to;
+    if (Object.keys(g.votes).length >= g.ids.length) return tally();
+    return commit();
+  }
+  if (a.t === "ans" && g.k === "math" && g.phase === "q" && a.q === g.qn && !g.locked[a.id]){
+    if (a.val === g.ans){
+      g.score[a.id] = (g.score[a.id] || 0) + 1; g.last = {id:a.id};
+      if (g.score[a.id] >= g.target){
+        var min = Math.min.apply(null, g.ids.map(function(id){ return g.score[id] || 0; }));
+        g.losers = g.ids.filter(function(id){ return (g.score[id] || 0) === min; });
+        g.phase = "result"; addPts(g.losers); return commit();
+      }
+      g.phase = "gap"; commit(); O.ht = setTimeout(mathNext, 1300); return;
+    }
+    g.locked[a.id] = 1;
+    if (g.ids.every(function(id){ return g.locked[id]; })){ g.last = {none:true}; g.phase = "gap"; commit(); O.ht = setTimeout(mathNext, 1300); return; }
+    return commit();
+  }
+  if (a.t === "claim" && g.k === "nunchi" && g.phase === "go" && g.calls.indexOf(a.id) < 0){
+    if (g.calls.length && now - g.lastT < 600){
+      g.losers = [g.calls[g.calls.length-1], a.id]; g.why = "두 사람이 동시에 외쳤어요"; g.calls.push(a.id);
+    } else {
+      g.calls.push(a.id); g.lastT = now;
+      if (g.calls.length < g.ids.length - 1) return commit();
+      g.losers = g.ids.filter(function(id){ return g.calls.indexOf(id) < 0; }); g.why = "마지막까지 못 외쳤어요";
+    }
+    g.phase = "result"; addPts(g.losers); return commit();
+  }
+}
+function tally(){
+  var g = O.S.g, counts = {}, max = 0, top;
+  g.ids.forEach(function(id){ var to = g.votes[id]; if (to){ counts[to] = (counts[to] || 0) + 1; if (counts[to] > max) max = counts[to]; } });
+  top = g.ids.filter(function(id){ return max > 0 && counts[id] === max; });
+  g.counts = counts;
+  if (g.k === "liar"){
+    g.caught = top.length === 1 && top[0] === g.liar;
+    g.losers = g.caught ? [g.liar] : g.ids.filter(function(id){ return id !== g.liar; });
+  } else g.losers = top;
+  g.phase = "result"; addPts(g.losers); commit();
+}
+function mathNext(){
+  var g = O.S && O.S.g; if (!g || g.k !== "math") return;
+  var op = rnd(3), a, b, ans, opts, d, i, j, tmp, c = [-10,-2,-1,1,2,10];
+  if (op === 0){ a = 10+rnd(80); b = 10+rnd(80); ans = a+b; }
+  else if (op === 1){ a = 30+rnd(70); b = 5+rnd(25); ans = a-b; }
+  else { a = 3+rnd(10); b = 3+rnd(7); ans = a*b; }
+  opts = [ans];
+  while (opts.length < 4){ d = ans + pick(c); if (d >= 0 && opts.indexOf(d) < 0) opts.push(d); }
+  for (i=3;i>0;i--){ j = rnd(i+1); tmp = opts[i]; opts[i] = opts[j]; opts[j] = tmp; }
+  g.text = a+" "+"+−×".charAt(op)+" "+b; g.opts = opts; g.ans = ans; g.qn++; g.locked = {}; g.phase = "q"; commit();
+}
+var OG = [
+  {k:"liar", t:"라이어 게임", d:"제시어를 보고 토론한 뒤 폰으로 투표", min:3},
+  {k:"math", t:"암산 레이스", d:"같은 문제를 먼저 맞히면 1점. 5점 선승", min:2},
+  {k:"nunchi", t:"눈치 게임", d:"한 명씩 번호 외치기. 겹치거나 꼴찌면 벌점", min:3},
+  {k:"point", t:"지목 투표", d:"질문에 맞는 사람에게 몰래 투표", min:3}
+];
+acts.ostart = function(b){
+  if (!O.isHost) return;
+  var S = O.S, ids = S.players.map(function(p){ return p.id; }), k = b.dataset.k, cats, cat;
+  clearTimeout(O.ht);
+  if (k === "liar"){
+    cats = Object.keys(WORDS); cat = pick(cats);
+    S.g = {k:k, ids:ids, cat:cat, word:pick(WORDS[cat]), liar:pick(ids), first:pick(ids), phase:"talk", votes:{}};
+  } else if (k === "point") S.g = {k:k, ids:ids, q:pick(POINTQ), phase:"vote", votes:{}};
+  else if (k === "math"){ S.g = {k:k, ids:ids, score:{}, qn:0, target:5, locked:{}, phase:"gap", last:null}; return mathNext(); }
+  else if (k === "nunchi"){
+    S.g = {k:k, ids:ids, phase:"ready", calls:[], lastT:0, losers:[], why:""};
+    O.ht = setTimeout(function(){ if (O.S && O.S.g && O.S.g.k === "nunchi" && O.S.g.phase === "ready"){ O.S.g.phase = "go"; commit(); } }, 3000);
+  }
+  commit();
+};
+acts.ovotego = function(){ if (O.isHost && O.S.g){ O.S.g.phase = "vote"; commit(); } };
+acts.otally = function(){ if (O.isHost && O.S.g && O.S.g.phase === "vote") tally(); };
+acts.olobby = function(){ if (O.isHost){ clearTimeout(O.ht); O.S.g = null; commit(); } };
+acts.oclear = function(){ if (O.isHost){ O.S.players.forEach(function(p){ p.pts = 0; }); commit(); } };
+acts.okick = function(b){ if (O.isHost){ O.S.players = O.S.players.filter(function(p){ return p.id !== b.dataset.id; }); commit(); } };
+acts.ovote = function(b){ sendAct({t:"vote", to:b.dataset.to}); };
+acts.oans = function(b){ sendAct({t:"ans", q:O.S.g.qn, val:+b.dataset.v}); };
+acts.oclaim = function(){ sendAct({t:"claim"}); };
+
+/* 화면 */
+function orender(force){
+  if (!O.room || mode !== "online") return;
+  var up = O.conns.some(function(c){ return c.connected; });
+  var key = JSON.stringify(O.S) + "|" + up + "|" + O.stale;
+  if (!force && key === O.last) return;
+  O.last = key;
+  var S = O.S, H = O.isHost, g = S && S.g, me = myId, body = "", foot = "";
+  var h = '<div class="ostage"><div class="top"><span class="mono">방 '+O.room+' · '+esc(myName)+(H?' · 방장':'')+'</span>'+
+    '<button class="btn ghost small" data-act="oleave">나가기</button></div>'+
+    (!up ? '<p class="note">서버에 연결하는 중…</p>' : (!H && O.stale ? '<p class="note">방장과 연결이 끊겼어요. 방장 폰 화면이 켜져 있는지 확인하세요.</p>' : ''));
+  if (!S){
+    return show(h+'<div class="center"><h2>방 '+O.room+' 찾는 중</h2><p class="muted">방 번호가 맞는지, 방장이 방을 열어두었는지 확인하세요.</p></div></div>');
+  }
+  var inG = g && g.ids.indexOf(me) >= 0;
+  var hostFoot = g ? (H ? '<div class="col"><button class="btn" data-act="ostart" data-k="'+g.k+'">한 판 더</button><button class="btn ghost" data-act="olobby">대기실로</button></div>'
+    : '<p class="muted" style="text-align:center">방장이 다음 판을 고르는 중</p>') : '';
+  function names(ids){ return ids.map(function(id){ return esc(oname(id)); }).join(", ") || "없음"; }
+  function tallyRows(){ return '<div class="rows" style="width:100%">'+g.ids.map(function(id){
+    return '<div class="row"><span class="name">'+esc(oname(id))+'</span><span class="mono">'+(g.counts[id]||0)+'표</span></div>'; }).join("")+'</div>'; }
+  function voteBody(sub, title){
+    var mine = g.votes[me];
+    return '<div class="center"><p class="muted">'+sub+'</p><h2>'+title+'</h2>'+
+      (inG ? '<div class="col" style="width:100%">'+g.ids.filter(function(id){ return id !== me; }).map(function(id){
+        return '<button class="btn'+(mine===id?'':' ghost')+'" data-act="ovote" data-to="'+id+'">'+esc(oname(id))+'</button>'; }).join("")+'</div>'
+        : '<p class="muted">이번 판은 관전 중</p>')+
+      '<p class="mono">'+Object.keys(g.votes).length+'/'+g.ids.length+'명 투표</p></div>'+
+      (H ? '<button class="btn ghost" data-act="otally">지금 결과 보기</button>' : '');
+  }
+  if (!g){
+    body = '<div class="center" style="flex:0 0 auto"><p class="muted">친구들에게 이 방 번호를 알려주세요</p><div class="roomcode">'+O.room+'</div></div>'+
+      '<div class="pass"><section><span class="mono">들어온 사람 '+S.players.length+'명</span><div class="rows">'+S.players.map(function(p,i){
+        return '<div class="row"><span class="seat">'+seat(i)+'</span><span class="name">'+esc(p.name)+(p.id===me?' (나)':'')+(p.id===S.host?' · 방장':'')+'</span>'+
+          '<span class="stamps">'+stampHtml(p.pts)+'</span>'+(H && p.id!==me ? '<button class="x" data-act="okick" data-id="'+p.id+'" aria-label="'+esc(p.name)+' 내보내기">×</button>' : '')+'</div>'; }).join("")+'</div></section>'+
+      '<div class="tear"></div><section>'+(H ? '<span class="mono">게임 고르기</span><div class="rows">'+OG.map(function(o,i){
+        var ok = S.players.length >= o.min;
+        return '<button class="game" data-act="ostart" data-k="'+o.k+'"'+(ok?'':' disabled')+'><span class="no">G'+(i+1)+'</span><span><b>'+o.t+'</b>'+
+          '<span class="d">'+(ok?o.d:o.min+'명부터 할 수 있어요')+'</span></span><span class="arr">→</span></button>'; }).join("")+'</div>'
+        : '<p class="muted">방장이 게임을 고르면 바로 시작됩니다.</p>')+'</section></div>'+
+      (H && S.players.some(function(p){ return p.pts; }) ? '<button class="link" data-act="oclear">도장 모두 지우기</button>' : '');
+  } else if (g.k === "liar" && g.phase === "talk"){
+    body = '<div class="center"><p class="muted">이번 주제</p><h2>'+g.cat+'</h2>'+
+      (inG ? '<div class="hold" id="hold"><span id="holdtxt" class="muted">남들 안 보이게 가리고<br><b>여기를 꾹 누르고 있기</b></span></div>' : '<p class="muted">이번 판은 관전 중</p>')+
+      '<p class="muted">'+esc(oname(g.first))+'부터 돌아가며 제시어를 한마디씩 설명하세요.</p></div>'+
+      (H ? '<button class="btn red" data-act="ovotego">투표 시작</button>' : '<p class="muted" style="text-align:center">토론이 끝나면 방장이 투표를 엽니다</p>');
+  } else if (g.k === "liar" && g.phase === "vote") body = voteBody("주제: "+g.cat, "라이어는 누구?");
+  else if (g.k === "liar"){
+    body = '<div class="center"><p class="muted">라이어는</p><div class="big liar">'+esc(oname(g.liar))+'</div><p>제시어는 <b>'+esc(g.word)+'</b></p>'+
+      '<p>'+(g.caught ? '라이어를 잡았어요. 라이어가 제시어를 못 맞히면 벌점 확정.' : '라이어가 빠져나갔어요. 나머지 모두 벌점.')+'</p>'+tallyRows()+'</div>'+hostFoot;
+  } else if (g.k === "point" && g.phase === "vote") body = voteBody("몰래 한 명에게 투표", g.q+"은?");
+  else if (g.k === "point"){
+    body = '<div class="center"><p class="muted">'+g.q+'</p><div class="big liar" style="font-size:2.2rem">'+names(g.losers)+'</div><p class="muted">도장 하나 추가</p>'+tallyRows()+'</div>'+hostFoot;
+  } else if (g.k === "math"){
+    var board = '<div class="chips">'+g.ids.map(function(id){ return '<span class="chip" style="padding:6px 12px">'+esc(oname(id))+' '+(g.score[id]||0)+'</span>'; }).join("")+'</div>';
+    if (g.phase === "result") body = '<div class="center"><p class="muted">'+g.target+'점 선승 끝</p>'+board+'<p class="muted">꼴찌</p><div class="big liar" style="font-size:2.2rem">'+names(g.losers)+'</div><p class="muted">도장 하나 추가</p></div>'+hostFoot;
+    else body = '<div class="center">'+board+'<div class="big">'+g.text+'</div>'+
+      (g.phase === "gap" ? '<p><b>'+(g.last && g.last.id ? esc(oname(g.last.id))+' 정답!' : '모두 오답')+'</b> 답은 '+g.ans+'</p>'
+        : (inG ? (g.locked[me] ? '<p class="muted">틀렸어요. 이번 문제는 쉬어갑니다.</p>'
+            : '<div class="opts">'+g.opts.map(function(v){ return '<button class="btn ghost" data-act="oans" data-v="'+v+'">'+v+'</button>'; }).join("")+'</div>')
+          : '<p class="muted">이번 판은 관전 중</p>'))+'</div>'+(H ? '<button class="btn ghost" data-act="olobby">그만하고 대기실로</button>' : '');
+  } else if (g.k === "nunchi"){
+    var calls = '<div class="rows" style="width:100%">'+g.calls.map(function(id,i){
+      return '<div class="row"><span class="seat">'+(i+1)+'</span><span class="name">'+esc(oname(id))+'</span></div>'; }).join("")+'</div>';
+    if (g.phase === "ready") body = '<div class="center"><h2>눈치 게임 준비</h2><p class="muted">곧 시작합니다. 한 명씩 눈치껏 번호를 외치세요. 두 명이 동시에 누르면 둘 다 벌점, 마지막까지 못 누른 사람도 벌점.</p></div>';
+    else if (g.phase === "go") body = '<div class="center">'+calls+(inG ? (g.calls.indexOf(me) >= 0 ? '<p class="muted">외쳤어요. 지켜보는 중</p>'
+        : '<button class="btn red" data-act="oclaim" style="width:100%;min-height:150px;font-size:2rem">'+(g.calls.length+1)+' 외치기</button>') : '<p class="muted">이번 판은 관전 중</p>')+'</div>';
+    else body = '<div class="center"><p class="muted">'+esc(g.why)+'</p><div class="big liar" style="font-size:2.2rem">'+names(g.losers)+'</div><p class="muted">도장 하나 추가</p>'+calls+'</div>'+hostFoot;
+  }
+  show(h + body + '</div>');
+  var hd = document.getElementById("hold");
+  if (hd){
+    var t = document.getElementById("holdtxt"), liar = g.liar === me;
+    var on = function(e){ e.preventDefault(); hd.classList.add("on"); t.className = "big"+(liar?" liar":""); t.textContent = liar ? "당신은 라이어" : g.word; };
+    var off = function(){ hd.classList.remove("on"); t.className = "muted"; t.textContent = "다시 보려면 꾹 누르기"; };
+    hd.addEventListener("pointerdown", on); hd.addEventListener("pointerup", off);
+    hd.addEventListener("pointercancel", off); hd.addEventListener("pointerleave", off);
+    hd.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+  }
+}
 
 home();
 })();
